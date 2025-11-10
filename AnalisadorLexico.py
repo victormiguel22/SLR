@@ -1,3 +1,4 @@
+
 from dataclasses import dataclass
 from typing import List, Optional
 from enum import Enum
@@ -18,8 +19,6 @@ class TokenType(Enum):
     FIM = 'fim'
     FUNCAO = 'funcao'
     RETORNE = 'retorne'
-    ATE = 'ate'
-    NAO = 'nao'
     ADICAO = '+'
     SUBTRACAO = '-'
     MULTIPLICACAO = '*'
@@ -55,7 +54,7 @@ class Token:
 
 class AnalisadorLexico:
     def __init__(self, codigo_fonte: str):
-        self.codigo = codigo_fonte
+        self.codigo = codigo_fonte  # Remova o + '\0'
         self.pos = 0
         self.linha = 1
         self.coluna = 1
@@ -138,8 +137,6 @@ class AnalisadorLexico:
             'fim': TokenType.FIM,
             'funcao': TokenType.FUNCAO,
             'retorne': TokenType.RETORNE,
-            'ate': TokenType.ATE,
-            'nao': TokenType.NAO,
             'verdadeiro': TokenType.CONST_BOOL,
             'falso': TokenType.CONST_BOOL,
         }
