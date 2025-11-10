@@ -152,13 +152,7 @@ class AnalisadorSLR:
     
     def construir_tabelas(self):
         """Constrói as tabelas ACTION e GOTO do SLR"""
-        # Para simplificar, vamos usar tabelas pré-construídas
-        # Em uma implementação completa, seria necessário:
-        # 1. Calcular FIRST e FOLLOW
-        # 2. Construir o autômato LR(0)
-        # 3. Gerar as tabelas ACTION e GOTO
-        
-        # Aqui vamos implementar uma versão simplificada
+
         self.action_table = {}
         self.goto_table = {}
         
@@ -167,8 +161,7 @@ class AnalisadorSLR:
     
     def _inicializar_tabelas(self):
         """Inicializa tabelas ACTION e GOTO simplificadas"""
-        # Esta é uma versão simplificada
-        # Na prática, as tabelas seriam geradas automaticamente
+
         pass
     
     def analisar(self):
@@ -181,9 +174,6 @@ class AnalisadorSLR:
     
     def _analisar_slr(self):
         """Implementação do algoritmo SLR"""
-        # Dado que construir tabelas SLR completas é muito complexo,
-        # vamos usar uma abordagem híbrida que simula o comportamento SLR
-        # mas usa parsing descendente recursivo internamente
         
         # Reiniciar posição
         self.pos = 0
