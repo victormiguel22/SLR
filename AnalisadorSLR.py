@@ -192,25 +192,100 @@ class AnalisadorSLR:
         
         return self.closure(goto_set)
     
+    def calcular_first(self) -> Dict[str, Set[str]]:
+        """Calcula os conjuntos FIRST para todos os símbolos"""
+        first = {}
+        
+        # Inicializar FIRST para terminais
+        for terminal in self.terminais:
+            first[terminal] = {terminal}
+        
+        # Inicializar FIRST para não-terminais
+        for nt in self.nao_terminais:
+            first[nt] = set()
+        
+        changed = True
+        max_iterations = 100
+        iteration = 0
+        
+        while changed and iteration < max_iterations:
+            changed = False
+            iteration += 1
+            
+            for nao_terminal, producao in self.gramatica:
+                if not producao:  # Produção vazia (epsilon)
+                    if 'epsilon' not in first[nao_terminal]:
+                        first[nao_terminal].add('epsilon')
+                        changed = True
+                else:
+                    first_producao = self.calcular_first_sequencia(producao, first)
+                    antes = len(first[nao_terminal])
+                    first[nao_terminal].update(first_producao)
+                    if len(first[nao_terminal]) > antes:
+                        changed = True
+        
+        return first
+    
+    def calcular_first_sequencia(self, sequencia: List[str], first: Dict[str, Set[str]]) -> Set[str]:
+        """Calcula FIRST de uma sequência de símbolos"""
+        resultado = set()
+        
+        for simbolo in sequencia:
+            if simbolo in self.terminais:
+                resultado.add(simbolo)
+                break
+            elif simbolo in first:
+                simbolo_first = first[simbolo].copy()
+                tem_epsilon = 'epsilon' in simbolo_first
+                simbolo_first.discard('epsilon')
+                resultado.update(simbolo_first)
+                
+                if not tem_epsilon:
+                    break
+            else:
+                break
+        else:
+            # Todos os símbolos podem derivar epsilon
+            resultado.add('epsilon')
+        
+        return resultado
+    
     def calcular_follow(self) -> Dict[str, Set[str]]:
+        """Calcula os conjuntos FOLLOW para todos os não-terminais"""
         follow = {nt: set() for nt in self.nao_terminais}
         follow["S'"].add('$')
         
+        # Primeiro calcular FIRST (necessário para FOLLOW)
+        first = self.calcular_first()
+        
         changed = True
-        while changed:
+        max_iterations = 100
+        iteration = 0
+        
+        while changed and iteration < max_iterations:
             changed = False
+            iteration += 1
             
             for nao_terminal, producao in self.gramatica:
                 for i, simbolo in enumerate(producao):
                     if simbolo in self.nao_terminais:
+                        # Se há símbolos após o não-terminal
                         if i + 1 < len(producao):
-                            proximo = producao[i + 1]
-                            if proximo in self.terminais:
-                                if proximo not in follow[simbolo]:
-                                    follow[simbolo].add(proximo)
-                                    changed = True
-                        
-                        if i == len(producao) - 1 or all(s in self.nao_terminais for s in producao[i+1:]):
+                            resto = producao[i + 1:]
+                            first_resto = self.calcular_first_sequencia(resto, first)
+                            
+                            # Adiciona FIRST(resto) - {epsilon} ao FOLLOW(simbolo)
+                            antes = len(follow[simbolo])
+                            follow[simbolo].update(first_resto - {'epsilon'})
+                            
+                            # Se epsilon está em FIRST(resto), adiciona FOLLOW(nao_terminal)
+                            if 'epsilon' in first_resto:
+                                follow[simbolo].update(follow[nao_terminal])
+                            
+                            if len(follow[simbolo]) > antes:
+                                changed = True
+                        else:
+                            # Se o não-terminal está no final da produção
                             antes = len(follow[simbolo])
                             follow[simbolo].update(follow[nao_terminal])
                             if len(follow[simbolo]) > antes:
@@ -256,43 +331,71 @@ class AnalisadorSLR:
         print(f"✓ Autômato construído: {len(self.estados)} estados")
         print(f"✓ Transições construídas: {len(self.transicoes)}")
         
+        print("Calculando conjuntos FIRST...")
+        self.first = self.calcular_first()
+        
         print("Calculando conjuntos FOLLOW...")
         self.follow = self.calcular_follow()
         
         print("Construindo tabelas ACTION e GOTO...")
         self.action_table = {}
         self.goto_table = {}
+        conflitos = []
         
-        print(f"DEBUG: Não-terminais encontrados: {len(self.nao_terminais)}")
-        print(f"DEBUG: Terminais encontrados: {len(self.terminais)}")
-        
+        # Adicionar shifts
         for (estado_idx, simbolo), destino in self.transicoes.items():
             if simbolo in self.terminais:
-                self.action_table[(estado_idx, simbolo)] = ActionEntry(Action.SHIFT, destino)
+                chave = (estado_idx, simbolo)
+                if chave in self.action_table:
+                    conflitos.append(f"Conflito shift-shift no estado {estado_idx}, símbolo {simbolo}")
+                self.action_table[chave] = ActionEntry(Action.SHIFT, destino)
             elif simbolo in self.nao_terminais:
                 self.goto_table[(estado_idx, simbolo)] = destino
-            else:
-                print(f"DEBUG: Símbolo '{simbolo}' não está em terminais nem não-terminais!")
         
+        # Adicionar reduces
         for estado_idx, estado in enumerate(self.estados):
             for item in estado:
                 regra_num = item.regra_num
                 ponto = item.ponto
                 nao_terminal, producao = self.gramatica[regra_num]
                 
+                # Item completo (ponto no final)
                 if ponto >= len(producao):
                     if nao_terminal == "S'" and regra_num == 0:
                         chave_accept = (estado_idx, '$')
                         self.action_table[chave_accept] = ActionEntry(Action.ACCEPT)
                     else:
                         follow_set = self.follow.get(nao_terminal, set())
+                        
+                        # Verificar se FOLLOW está vazio (não deveria acontecer)
                         if not follow_set:
-                            simbolo_dolar = '$'
-                            follow_set = self.terminais.union({simbolo_dolar})
+                            print(f"⚠ AVISO: FOLLOW vazio para {nao_terminal}")
+                            continue
                         
                         for simbolo in follow_set:
-                            if (estado_idx, simbolo) not in self.action_table:
-                                self.action_table[(estado_idx, simbolo)] = ActionEntry(Action.REDUCE, regra_num)
+                            chave = (estado_idx, simbolo)
+                            if chave in self.action_table:
+                                # Conflito shift-reduce ou reduce-reduce
+                                acao_existente = self.action_table[chave]
+                                if acao_existente.action == Action.SHIFT:
+                                    conflitos.append(
+                                        f"Conflito shift-reduce no estado {estado_idx}, "
+                                        f"símbolo {simbolo}: shift vs reduce por regra {regra_num}"
+                                    )
+                                elif acao_existente.action == Action.REDUCE:
+                                    conflitos.append(
+                                        f"Conflito reduce-reduce no estado {estado_idx}, "
+                                        f"símbolo {simbolo}: regras {acao_existente.value} e {regra_num}"
+                                    )
+                            else:
+                                self.action_table[chave] = ActionEntry(Action.REDUCE, regra_num)
+        
+        if conflitos:
+            print(f"\n⚠ AVISO: {len(conflitos)} conflito(s) detectado(s):")
+            for conflito in conflitos[:10]:  # Mostrar apenas os 10 primeiros
+                print(f"  - {conflito}")
+            if len(conflitos) > 10:
+                print(f"  ... e mais {len(conflitos) - 10} conflito(s)")
         
         print(f"✓ Tabelas construídas: ACTION tem {len(self.action_table)} entradas, GOTO tem {len(self.goto_table)} entradas")
     
@@ -314,9 +417,19 @@ class AnalisadorSLR:
             
             chave = (estado_atual, simbolo)
             if chave not in self.action_table:
+                # Melhor mensagem de erro com tokens esperados
+                tokens_esperados = []
+                for (est, simb) in self.action_table.keys():
+                    if est == estado_atual:
+                        tokens_esperados.append(simb)
+                
+                tokens_esperados = list(set(tokens_esperados))[:5]
+                esperados_str = ", ".join(tokens_esperados)
+                
                 self.erros.append(
                     f"Erro sintático na linha {token.linha}, coluna {token.coluna}: "
-                    f"Token inesperado '{token.lexema}'"
+                    f"Token inesperado '{token.lexema}' (tipo: {simbolo}). "
+                    f"Esperado um dos seguintes: {esperados_str}"
                 )
                 return None
             
@@ -417,9 +530,11 @@ class AnalisadorSLR:
         elif regra_num == 27:
             return ComandoSe(valores[1], valores[3], valores[7])
         elif regra_num == 28:
-            return ('ENQUANTO', valores[1], valores[4])
+            # COMANDO_ENQUANTO: enquanto <expr> faca inicio <comandos> fim
+            return ComandoEnquanto(valores[1], valores[4])
         elif regra_num == 29:
-            return ('PARA', valores[1], valores[3], valores[5], valores[8])
+            # COMANDO_PARA: para <atrib> faca <expr> faca <atrib> faca inicio <comandos> fim
+            return ComandoPara(valores[1], valores[3], valores[5], valores[8])
         elif regra_num == 30:
             return ComandoEscreva(valores[2])
         elif regra_num == 31:
