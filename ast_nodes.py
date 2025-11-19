@@ -70,6 +70,18 @@ class ComandoSe(No):
     bloco_senao: Optional[List[No]] = None
 
 @dataclass
+class ComandoEnquanto(No):
+    condicao: No
+    corpo: List[No]
+
+@dataclass
+class ComandoPara(No):
+    inicializacao: No
+    condicao: No
+    incremento: No
+    corpo: List[No]
+
+@dataclass
 class ChamadaFuncao(No):
     nome: str
     argumentos: List[No]
